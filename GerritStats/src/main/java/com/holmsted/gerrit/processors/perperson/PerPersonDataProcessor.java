@@ -26,11 +26,14 @@ public class PerPersonDataProcessor extends CommitDataProcessor<PerPersonData> {
         final AtomicLong fromDate = new AtomicLong(Long.MAX_VALUE);
         final AtomicLong toDate = new AtomicLong(Long.MIN_VALUE);
 
+        final IdentityRecord summary = new IdentityRecord(new Commit.Identity("__all__", null, null));
+
         CommitVisitor visitor = new CommitVisitor(getCommitFilter()) {
             @Override
             public void visitCommit(@Nonnull Commit commit) {
                 IdentityRecord ownerRecord = getOrCreateRecord(commit.owner);
                 ownerRecord.addCommit(commit);
+                summary.addCommit(commit);
 
                 if (commit.lastUpdatedDate > toDate.get()) {
                     toDate.set(commit.lastUpdatedDate);
@@ -45,6 +48,7 @@ public class PerPersonDataProcessor extends CommitDataProcessor<PerPersonData> {
                     }
                     if (!ownerRecord.identity.equals(identity)) {
                         ownerRecord.addReviewerForOwnCommit(identity);
+                        summary.addReviewerForOwnCommit(identity);
                     }
 
                     IdentityRecord reviewerRecord = getOrCreateRecord(identity);
@@ -64,14 +68,17 @@ public class PerPersonDataProcessor extends CommitDataProcessor<PerPersonData> {
                     switch (approval.type) {
                         case Commit.Approval.TYPE_CODE_REVIEW: {
                             ownerRecord.addReceivedCodeReview(approval);
+                            summary.addReceivedCodeReview(approval);
                             if (getCommitFilter().isIncluded(approval.grantedBy)
                                     && !ownerRecord.identity.equals(approval.grantedBy)) {
                                 ownerRecord.addApprovalForOwnCommit(approval.grantedBy);
+                                summary.addApprovalForOwnCommit(approval.grantedBy);
                             }
                             break;
                         }
                         case Commit.Approval.TYPE_SUBMITTED: {
                             ownerRecord.updateAverageTimeInCodeReview(approval.grantedOnDate - commit.createdOnDate);
+                            summary.updateAverageTimeInCodeReview(approval.grantedOnDate - commit.createdOnDate);
                             break;
                         }
                         default:
@@ -84,6 +91,7 @@ public class PerPersonDataProcessor extends CommitDataProcessor<PerPersonData> {
             public void visitApproval(@Nonnull Commit.PatchSet patchSet, @Nonnull Commit.Approval approval) {
                 IdentityRecord record = getOrCreateRecord(approval.grantedBy);
                 record.addApproval(approval);
+                summary.addApproval(approval);
             }
 
             @Override
@@ -93,11 +101,13 @@ public class PerPersonDataProcessor extends CommitDataProcessor<PerPersonData> {
                 IdentityRecord reviewerRecord = getOrCreateRecord(patchSetComment.reviewer);
                 if (!patchSet.author.equals(patchSetComment.reviewer)) {
                     reviewerRecord.addWrittenComment(commit, patchSetComment);
+                    summary.addWrittenComment(commit, patchSetComment);
                 }
 
                 IdentityRecord authorRecord = getOrCreateRecord(patchSet.author);
                 if (!patchSet.author.equals(patchSetComment.reviewer)) {
                     authorRecord.addReceivedComment(commit, patchSetComment);
+                    summary.addWrittenComment(commit, patchSetComment);
                 }
             }
         };
@@ -105,6 +115,8 @@ public class PerPersonDataProcessor extends CommitDataProcessor<PerPersonData> {
         records.setQueryData(queryData);
         records.setFromDate(fromDate.get());
         records.setToDate(toDate.get());
+
+        records.put(summary.identity, summary);
 
         formatter.format(records);
     }
